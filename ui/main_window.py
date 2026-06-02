@@ -93,6 +93,14 @@ class MainWindow(QMainWindow):
         self.btn_pause = QPushButton("❚❚ 暂停")
         self.btn_clear = QPushButton("✖ 清空重置")
 
+        # 录制模式选择
+        ctrl_layout.addWidget(QLabel("录制范围:"))
+        self.combo_record_mode = QComboBox()
+        self.combo_record_mode.addItem("鼠标 + 键盘", "both")
+        self.combo_record_mode.addItem("仅鼠标", "mouse_only")
+        self.combo_record_mode.addItem("仅键盘", "keyboard_only")
+        self.combo_record_mode.setMinimumWidth(120)
+
         self.btn_record.setStyleSheet(
             "QPushButton { background-color: #e03030; color: white; font-weight: bold; padding: 8px 16px; border-radius: 4px; }"
             "QPushButton:hover { background-color: #c02020; }"
@@ -118,6 +126,7 @@ class MainWindow(QMainWindow):
         self.btn_replay.setEnabled(False)
         self.btn_pause.setEnabled(False)
 
+        ctrl_layout.addWidget(self.combo_record_mode)
         ctrl_layout.addWidget(self.btn_record)
         ctrl_layout.addWidget(self.btn_stop)
         ctrl_layout.addWidget(self.btn_replay)
@@ -292,11 +301,14 @@ class MainWindow(QMainWindow):
         """开始录制"""
         target_title = None
         target_rect = None
-        # 如果有已选窗口，用第一个窗口的信息作为录制目标
         if not self.chk_no_window.isChecked() and self.selected_windows:
             first = self.selected_windows[0]
             target_title = first['title']
             target_rect = first['rect']
+
+        # 设置录制模式
+        mode = self.combo_record_mode.currentData()
+        self.recorder.set_record_mode(mode)
 
         self.event_table.setRowCount(0)
         self.recorder.start_recording(target_title, target_rect)
@@ -507,6 +519,7 @@ class MainWindow(QMainWindow):
         self.btn_replay.setEnabled(False)
         self.btn_pause.setEnabled(False)
         self.btn_record.setText("● 录制中...")
+        self.combo_record_mode.setEnabled(False)
 
     def _set_ui_replay_state(self):
         self.btn_record.setEnabled(False)
@@ -522,6 +535,7 @@ class MainWindow(QMainWindow):
         self.btn_pause.setEnabled(False)
         self.btn_record.setText("● 录制")
         self.btn_pause.setText("❚❚ 暂停")
+        self.combo_record_mode.setEnabled(True)
 
     # ========== 文件操作 ==========
 

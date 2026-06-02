@@ -40,6 +40,12 @@ VK_NAMES = {
 VK_SCAN_RANGES = list(range(0x08, 0x97))
 
 
+# 录制模式
+RECORD_MODE_BOTH = "both"
+RECORD_MODE_MOUSE = "mouse_only"
+RECORD_MODE_KEYBOARD = "keyboard_only"
+
+
 class Recorder:
     """鼠标键盘录制器"""
 
@@ -52,6 +58,7 @@ class Recorder:
         self._lock = threading.Lock()
         self._last_move_ts: float = 0.0
         self._key_states: dict = {}
+        self._record_mode: str = RECORD_MODE_BOTH  # 默认同时录制鼠标和键盘
 
         # QTimer 引用（由外部设置）
         self._keyboard_timer = None
@@ -71,6 +78,10 @@ class Recorder:
     def set_keyboard_timer(self, timer):
         """设置 QTimer 用于主线程键盘轮询"""
         self._keyboard_timer = timer
+
+    def set_record_mode(self, mode: str):
+        """设置录制模式：RECORD_MODE_BOTH / RECORD_MODE_MOUSE / RECORD_MODE_KEYBOARD"""
+        self._record_mode = mode
 
     def start_recording(self, target_window: str = None, target_window_rect: tuple = None):
         """开始录制"""
@@ -132,6 +143,8 @@ class Recorder:
         """键盘轮询（由 QTimer 在主线程调用）"""
         if not self._is_recording or self._is_replaying:
             return
+        if self._record_mode == RECORD_MODE_MOUSE:
+            return  # 仅鼠标模式下跳过键盘录制
 
         now = time.perf_counter() - self._start_time
         for vk in VK_SCAN_RANGES:
@@ -163,6 +176,8 @@ class Recorder:
         """鼠标移动回调（带节流）"""
         if injected or self._is_replaying:
             return
+        if self._record_mode == RECORD_MODE_KEYBOARD:
+            return  # 仅键盘模式下跳过鼠标录制
         now = time.perf_counter() - self._start_time
         if (now - self._last_move_ts) < 0.016:
             return
@@ -176,6 +191,8 @@ class Recorder:
         """鼠标点击回调"""
         if injected or self._is_replaying:
             return
+        if self._record_mode == RECORD_MODE_KEYBOARD:
+            return
         self._add_event(ActionEvent(
             event_type=EventType.MOUSE_CLICK,
             timestamp=time.perf_counter() - self._start_time,
@@ -187,6 +204,8 @@ class Recorder:
     def _on_mouse_scroll(self, x, y, dx, dy, injected=False):
         """鼠标滚轮回调"""
         if injected or self._is_replaying:
+            return
+        if self._record_mode == RECORD_MODE_KEYBOARD:
             return
         self._add_event(ActionEvent(
             event_type=EventType.MOUSE_SCROLL,
