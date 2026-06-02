@@ -76,11 +76,13 @@ class MainWindow(QMainWindow):
         self.btn_stop = QPushButton("■ 停止")
         self.btn_replay = QPushButton("▶ 回放")
         self.btn_pause = QPushButton("❚❚ 暂停")
+        self.btn_clear = QPushButton("✖ 清空重置")
 
         self.btn_record.setStyleSheet("QPushButton { background-color: #ff4444; color: white; font-weight: bold; padding: 8px 16px; }")
         self.btn_stop.setStyleSheet("QPushButton { background-color: #888888; color: white; font-weight: bold; padding: 8px 16px; }")
         self.btn_replay.setStyleSheet("QPushButton { background-color: #44aa44; color: white; font-weight: bold; padding: 8px 16px; }")
         self.btn_pause.setStyleSheet("QPushButton { background-color: #4488cc; color: white; font-weight: bold; padding: 8px 16px; }")
+        self.btn_clear.setStyleSheet("QPushButton { background-color: #cc6644; color: white; font-weight: bold; padding: 8px 16px; }")
 
         self.btn_stop.setEnabled(False)
         self.btn_replay.setEnabled(False)
@@ -90,6 +92,7 @@ class MainWindow(QMainWindow):
         ctrl_layout.addWidget(self.btn_stop)
         ctrl_layout.addWidget(self.btn_replay)
         ctrl_layout.addWidget(self.btn_pause)
+        ctrl_layout.addWidget(self.btn_clear)
         ctrl_group.setLayout(ctrl_layout)
 
         # === 回放设置区 ===
@@ -168,10 +171,14 @@ class MainWindow(QMainWindow):
         self.action_save.setShortcut("Ctrl+S")
         self.action_load = QAction("加载录制(&L)", self)
         self.action_load.setShortcut("Ctrl+O")
+        self.action_clear = QAction("清空重置(&N)", self)
+        self.action_clear.setShortcut("Ctrl+N")
         self.action_exit = QAction("退出(&X)", self)
         self.action_exit.setShortcut("Alt+F4")
         file_menu.addAction(self.action_save)
         file_menu.addAction(self.action_load)
+        file_menu.addSeparator()
+        file_menu.addAction(self.action_clear)
         file_menu.addSeparator()
         file_menu.addAction(self.action_exit)
 
@@ -200,6 +207,7 @@ class MainWindow(QMainWindow):
         self.btn_stop.clicked.connect(self._on_stop)
         self.btn_replay.clicked.connect(self._on_replay)
         self.btn_pause.clicked.connect(self._on_pause)
+        self.btn_clear.clicked.connect(self._on_clear)
 
         # 窗口选择
         self.btn_refresh_windows.clicked.connect(self._refresh_window_list)
@@ -212,6 +220,7 @@ class MainWindow(QMainWindow):
         # 菜单
         self.action_save.triggered.connect(self._on_save)
         self.action_load.triggered.connect(self._on_load)
+        self.action_clear.triggered.connect(self._on_clear)
         self.action_exit.triggered.connect(self.close)
         self.action_about.triggered.connect(self._on_about)
 
@@ -290,6 +299,26 @@ class MainWindow(QMainWindow):
             self.btn_pause.setText("▶ 继续")
         else:
             self.btn_pause.setText("❚❚ 暂停")
+
+    def _on_clear(self):
+        """清空重置：停止录制/回放，清空所有数据和界面"""
+        # 停止正在进行的录制
+        if self.recorder.is_recording:
+            self.recorder.stop_recording()
+        # 停止正在进行的回放
+        if self.replayer.is_replaying:
+            self.replayer.stop_replay()
+        # 清空录制会话
+        self.current_session = None
+        # 清空事件表格
+        self.event_table.setRowCount(0)
+        # 重置状态栏
+        self.lbl_status.setText("就绪")
+        self.lbl_event_count.setText("事件数: 0")
+        self.lbl_duration.setText("时长: 0.0s")
+        self.lbl_progress.setText("")
+        # 重置 UI 状态
+        self._set_ui_idle_state()
 
     # ========== 窗口选择 ==========
 
@@ -483,6 +512,7 @@ class MainWindow(QMainWindow):
             "<br><p>快捷键:</p>"
             "<p>Ctrl+S - 保存录制</p>"
             "<p>Ctrl+O - 加载录制</p>"
+            "<p>Ctrl+N - 清空重置</p>"
             "<p>Esc - 停止回放</p>"
         )
 
