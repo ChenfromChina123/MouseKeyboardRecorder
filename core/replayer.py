@@ -4,6 +4,8 @@
 """
 
 import ctypes
+import logging
+import os
 import threading
 import time
 from ctypes import wintypes
@@ -16,6 +18,15 @@ import win32api
 
 from core.event_model import ActionEvent, EventType, RecordingSession
 from core.window_manager import WindowManager
+
+# 日志配置
+_log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
+os.makedirs(_log_dir, exist_ok=True)
+_logger = logging.getLogger("replayer")
+_logger.setLevel(logging.DEBUG)
+_fh = logging.FileHandler(os.path.join(_log_dir, "replayer.log"), encoding="utf-8", mode="w")
+_fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+_logger.addHandler(_fh)
 
 pyautogui.PAUSE = 0
 pyautogui.FAILSAFE = True
@@ -138,6 +149,7 @@ class Replayer:
         self._current_target_hwnd: int = None  # 当前回放的目标窗口
         self._is_paused: bool = False
         self._session_window_rect: tuple = None
+        self._edit_hwnd_cache: dict = {}  # 缓存窗口对应的编辑控件句柄
 
         self.on_status_changed: Callable[[str], None] = None
         self.on_progress: Callable[[int, int], None] = None
@@ -158,6 +170,7 @@ class Replayer:
     def set_target_windows(self, hwnd_list: list):
         """设置目标窗口列表"""
         self._target_hwnds = list(hwnd_list)
+        self._edit_hwnd_cache.clear()
         if hwnd_list:
             self._current_target_hwnd = hwnd_list[0]
         else:
@@ -178,9 +191,15 @@ class Replayer:
 
     def start_replay(self, session: RecordingSession, repeat: int = 1):
         """开始回放。repeat=0 表示无限循环"""
+        _logger.info(f"start_replay 被调用: 事件数={len(session.events) if session else 0}, repeat={repeat}")
+        _logger.info(f"目标窗口列表: {self._target_hwnds}")
+        _logger.info(f"当前目标窗口: {self._current_target_hwnd}")
+        _logger.info(f"速度: {self._speed}")
         if self._is_replaying:
+            _logger.warning("已在回放中，忽略")
             return
         if not session or not session.events:
+            _logger.warning("无会话或无事件，忽略")
             return
 
         self._stop_event.clear()
@@ -192,6 +211,7 @@ class Replayer:
             daemon=True
         )
         self._is_replaying = True
+        _logger.info("启动回放线程")
         self._replay_thread.start()
 
     def stop_replay(self):
@@ -216,6 +236,7 @@ class Replayer:
 
     def _replay_worker(self, session: RecordingSession, repeat: int):
         """回放工作线程。repeat=0 表示无限循环"""
+        _logger.info(f"回放线程启动: 事件数={len(session.events)}, repeat={repeat}, 有窗口={bool(self._target_hwnds)}")
         try:
             if self.on_status_changed:
                 self.on_status_changed("回放中...")
@@ -227,19 +248,23 @@ class Replayer:
             rep = 0
             while True:
                 if self._stop_event.is_set():
+                    _logger.info("收到停止信号，退出循环")
                     break
 
                 # 无限循环检查：repeat=0 表示无限
                 if repeat > 0 and rep >= repeat:
+                    _logger.info(f"重复次数已到: rep={rep}, repeat={repeat}")
                     break
 
                 # 如果有多窗口，每个循环切换到下一个窗口
                 if has_windows:
                     hwnd_idx = rep % len(self._target_hwnds)
                     self._current_target_hwnd = self._target_hwnds[hwnd_idx]
+                    _logger.info(f"第{rep+1}轮 -> 窗口 hwnd={self._current_target_hwnd}")
                     WindowManager.activate_window(self._current_target_hwnd)
                     time.sleep(0.3)
 
+                _logger.info(f"开始第{rep+1}轮回放, 目标hwnd={self._current_target_hwnd}")
                 replay_start = time.perf_counter()
 
                 for i, event in enumerate(events):
@@ -284,6 +309,11 @@ class Replayer:
 
     def _execute_event(self, event: ActionEvent):
         """执行单个事件"""
+        if event.event_type == EventType.KEY_PRESS:
+            _logger.debug(f"KEY_PRESS: key={event.key}, vk={event.vk}, hwnd={self._current_target_hwnd}")
+        elif event.event_type == EventType.KEY_RELEASE:
+            _logger.debug(f"KEY_RELEASE: key={event.key}, vk={event.vk}")
+
         if event.event_type == EventType.MOUSE_MOVE:
             self._execute_mouse_move(event)
         elif event.event_type == EventType.MOUSE_CLICK:
@@ -329,8 +359,10 @@ class Replayer:
 
     def _execute_key(self, event: ActionEvent, is_press: bool):
         if self._current_target_hwnd:
+            _logger.debug(f"窗口模式: key={event.key}, vk={event.vk}, pressed={is_press}, target_hwnd={self._current_target_hwnd}")
             self._send_key_to_window(self._current_target_hwnd, event, is_press)
         else:
+            _logger.debug(f"全局模式: key={event.key}, vk={event.vk}, pressed={is_press}")
             if event.vk is not None:
                 _send_key_event(event.vk, is_press, event.scan_code)
             elif event.key:
@@ -378,17 +410,66 @@ class Replayer:
         except Exception:
             pass
 
-    def _send_key_to_window(self, hwnd, event, is_press):
-        """向指定窗口发送键盘事件"""
+    def _find_edit_control(self, hwnd) -> int:
+        """查找窗口内的编辑控件（Edit/RichEdit/Scintilla 等）"""
+        EDIT_CLASSES = {"Edit", "RichEdit", "RichEditD2DPT", "Scintilla",
+                        "RICHEDIT", "NotepadTextBox"}
+        result = [None]
+
+        def enum_child(child_hwnd, _):
+            try:
+                cls = win32gui.GetClassName(child_hwnd)
+                if cls in EDIT_CLASSES:
+                    result[0] = child_hwnd
+                    _logger.info(f"找到编辑控件: hwnd={child_hwnd}, class={cls}")
+                    return False  # 停止枚举
+            except Exception:
+                pass
+            return True
+
         try:
-            msg = win32con.WM_KEYDOWN if is_press else win32con.WM_KEYUP
+            win32gui.EnumChildWindows(hwnd, enum_child, None)
+        except Exception:
+            pass
+        if not result[0]:
+            _logger.warning(f"未找到编辑控件, 父窗口 hwnd={hwnd}")
+        return result[0]
+
+    def _get_target_hwnd(self, hwnd) -> int:
+        """获取实际接收键盘消息的窗口句柄（优先使用子控件，带缓存）"""
+        if hwnd in self._edit_hwnd_cache:
+            cached = self._edit_hwnd_cache[hwnd]
+            if win32gui.IsWindow(cached):
+                return cached
+            del self._edit_hwnd_cache[hwnd]
+        edit = self._find_edit_control(hwnd)
+        if edit:
+            self._edit_hwnd_cache[hwnd] = edit
+            return edit
+        return hwnd
+
+    def _send_key_to_window(self, hwnd, event, is_press):
+        """向指定窗口发送键盘事件（WM_KEYDOWN + WM_CHAR）"""
+        try:
+            target = self._get_target_hwnd(hwnd)
             wparam = event.vk if event.vk else (ord(event.key) if event.key and len(event.key) == 1 else 0)
             if wparam == 0:
+                _logger.warning(f"wparam=0, 跳过: key={event.key}, vk={event.vk}")
                 return
             scan = event.scan_code if event.scan_code else MapVirtualKey(wparam, 0)
             lparam = (scan << 16) | 1
-            if not is_press:
+
+            if is_press:
+                _logger.debug(f"  -> PostMessage WM_KEYDOWN to hwnd={target}, vk={wparam:#06x}, scan={scan:#06x}")
+                win32gui.PostMessage(target, win32con.WM_KEYDOWN, wparam, lparam)
+                # WM_CHAR（对可打印字符，让记事本等应用正确接收文字输入）
+                if event.key and len(event.key) == 1 and event.key.isprintable():
+                    char_code = ord(event.key)
+                    _logger.debug(f"  -> PostMessage WM_CHAR to hwnd={target}, char='{event.key}' ({char_code:#06x})")
+                    win32gui.PostMessage(target, win32con.WM_CHAR, char_code, lparam)
+            else:
                 lparam |= 0xC0000000
-            win32gui.PostMessage(hwnd, msg, wparam, lparam)
-        except Exception:
-            pass
+                _logger.debug(f"  -> PostMessage WM_KEYUP to hwnd={target}, vk={wparam:#06x}")
+                win32gui.PostMessage(target, win32con.WM_KEYUP, wparam, lparam)
+        except Exception as e:
+            _logger.error(f"_send_key_to_window 异常: {e}", exc_info=True)
