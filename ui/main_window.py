@@ -163,16 +163,16 @@ class MainWindow(QMainWindow):
 
         settings_group.setLayout(settings_layout)
 
-        # === 目标窗口区（使用水平分割：左侧下拉+按钮，右侧已选列表）===
+        # === 目标窗口区 ===
         window_group = QGroupBox("目标窗口（可选，不指定则全局回放）")
         window_main_layout = QVBoxLayout()
 
         # 第一行：窗口选择控件
         window_select_layout = QHBoxLayout()
         self.combo_window = QComboBox()
-        self.combo_window.setMinimumWidth(280)
+        self.combo_window.setMinimumWidth(260)
         self.btn_refresh_windows = QPushButton("刷新")
-        self.btn_add_window = QPushButton("添加窗口")
+        self.btn_add_window = QPushButton("添加到列表")
         self.btn_remove_window = QPushButton("移除选中")
         self.chk_no_window = QCheckBox("全局模式")
         self.chk_no_window.setChecked(True)
@@ -184,11 +184,37 @@ class MainWindow(QMainWindow):
         window_select_layout.addWidget(self.chk_no_window)
         window_main_layout.addLayout(window_select_layout)
 
-        # 第二行：已选窗口列表
+        # 第二行：已选窗口列表 + 操作按钮
+        window_list_layout = QHBoxLayout()
         self.list_selected_windows = QListWidget()
-        self.list_selected_windows.setMaximumHeight(80)
+        self.list_selected_windows.setMaximumHeight(100)
         self.list_selected_windows.setAlternatingRowColors(True)
-        window_main_layout.addWidget(self.list_selected_windows)
+        self.list_selected_windows.setSelectionMode(QListWidget.SingleSelection)
+
+        # 右侧操作按钮
+        btn_list_layout = QVBoxLayout()
+        self.btn_replay_selected = QPushButton("回放选中窗口")
+        self.btn_replay_all = QPushButton("轮流回放全部")
+        self.btn_replay_selected.setStyleSheet(
+            "QPushButton { background-color: #2eaa2e; color: white; padding: 6px; border-radius: 3px; }"
+            "QPushButton:hover { background-color: #208020; }"
+            "QPushButton:disabled { background-color: #aaaaaa; }"
+        )
+        self.btn_replay_all.setStyleSheet(
+            "QPushButton { background-color: #3377cc; color: white; padding: 6px; border-radius: 3px; }"
+            "QPushButton:hover { background-color: #2260aa; }"
+            "QPushButton:disabled { background-color: #aaaaaa; }"
+        )
+        self.btn_replay_selected.setEnabled(False)
+        self.btn_replay_all.setEnabled(False)
+
+        btn_list_layout.addWidget(self.btn_replay_selected)
+        btn_list_layout.addWidget(self.btn_replay_all)
+        btn_list_layout.addStretch()
+
+        window_list_layout.addWidget(self.list_selected_windows)
+        window_list_layout.addLayout(btn_list_layout)
+        window_main_layout.addLayout(window_list_layout)
 
         window_group.setLayout(window_main_layout)
 
@@ -268,6 +294,9 @@ class MainWindow(QMainWindow):
         self.btn_add_window.clicked.connect(self._on_add_window)
         self.btn_remove_window.clicked.connect(self._on_remove_window)
         self.chk_no_window.toggled.connect(self._on_global_mode_toggled)
+        self.btn_replay_selected.clicked.connect(self._on_replay_selected_window)
+        self.btn_replay_all.clicked.connect(self._on_replay_all_windows)
+        self.list_selected_windows.currentRowChanged.connect(self._on_selected_window_changed)
 
         self.slider_speed.valueChanged.connect(self._on_speed_changed)
 
@@ -427,6 +456,57 @@ class MainWindow(QMainWindow):
         if checked:
             self.selected_windows.clear()
             self._update_selected_windows_list()
+        self._update_window_action_buttons()
+
+    def _on_selected_window_changed(self, row):
+        """已选窗口列表选择变化"""
+        self._update_window_action_buttons()
+
+    def _update_window_action_buttons(self):
+        """更新窗口操作按钮状态"""
+        has_selected = self.list_selected_windows.currentRow() >= 0
+        has_windows = len(self.selected_windows) > 0
+        has_data = self.current_session is not None and len(self.current_session.events) > 0
+
+        self.btn_replay_selected.setEnabled(has_selected and has_data and not self.replayer.is_replaying)
+        self.btn_replay_all.setEnabled(has_windows and has_data and not self.replayer.is_replaying)
+
+    def _on_replay_selected_window(self):
+        """回放选中的单个窗口"""
+        row = self.list_selected_windows.currentRow()
+        if row < 0 or row >= len(self.selected_windows):
+            return
+        self._start_window_replay([self.selected_windows[row]])
+
+    def _on_replay_all_windows(self):
+        """轮流回放所有已选窗口"""
+        if not self.selected_windows:
+            return
+        self._start_window_replay(self.selected_windows)
+
+    def _start_window_replay(self, windows: list):
+        """启动指定窗口的回放"""
+        if not self.current_session or not self.current_session.events:
+            QMessageBox.warning(self, "提示", "没有可回放的录制数据。")
+            return
+
+        speed = self.slider_speed.value() / 10.0
+        self.replayer.set_speed(speed)
+
+        hwnd_list = [w['hwnd'] for w in windows]
+        self.replayer.set_target_windows(hwnd_list)
+        if self.current_session.target_window_rect:
+            self.replayer.set_session_window_rect(self.current_session.target_window_rect)
+
+        self.recorder.set_replaying(True)
+
+        if self.chk_infinite.isChecked():
+            repeat = 0
+        else:
+            repeat = self.spin_repeat.value()
+
+        self.replayer.start_replay(self.current_session, repeat)
+        self._set_ui_replay_state()
 
     def _on_speed_changed(self, value):
         """速度滑块变化"""
@@ -520,6 +600,8 @@ class MainWindow(QMainWindow):
         self.btn_pause.setEnabled(False)
         self.btn_record.setText("● 录制中...")
         self.combo_record_mode.setEnabled(False)
+        self.btn_replay_selected.setEnabled(False)
+        self.btn_replay_all.setEnabled(False)
 
     def _set_ui_replay_state(self):
         self.btn_record.setEnabled(False)
@@ -527,6 +609,7 @@ class MainWindow(QMainWindow):
         self.btn_replay.setEnabled(False)
         self.btn_pause.setEnabled(True)
         self.btn_pause.setText("❚❚ 暂停")
+        self._update_window_action_buttons()
 
     def _set_ui_idle_state(self):
         self.btn_record.setEnabled(True)
@@ -536,6 +619,7 @@ class MainWindow(QMainWindow):
         self.btn_record.setText("● 录制")
         self.btn_pause.setText("❚❚ 暂停")
         self.combo_record_mode.setEnabled(True)
+        self._update_window_action_buttons()
 
     # ========== 文件操作 ==========
 
