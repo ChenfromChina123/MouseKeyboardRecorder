@@ -175,7 +175,6 @@ class MainWindow(QMainWindow):
         self.btn_add_window = QPushButton("添加到列表")
         self.btn_remove_window = QPushButton("移除选中")
         self.chk_no_window = QCheckBox("全局模式")
-        self.chk_no_window.setChecked(True)
 
         window_select_layout.addWidget(self.combo_window)
         window_select_layout.addWidget(self.btn_refresh_windows)
