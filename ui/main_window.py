@@ -49,6 +49,11 @@ class MainWindow(QMainWindow):
         self.replayer = Replayer()
         self.window_mgr = WindowManager()
 
+        # 键盘轮询 QTimer（必须在主线程运行，GetAsyncKeyState 只在主线程有效）
+        self._keyboard_timer = QTimer(self)
+        self._keyboard_timer.timeout.connect(self.recorder.poll_keyboard)
+        self.recorder.set_keyboard_timer(self._keyboard_timer)
+
         # 当前录制会话
         self.current_session: RecordingSession = None
         # 目标窗口信息
