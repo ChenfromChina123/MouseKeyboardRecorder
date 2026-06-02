@@ -24,7 +24,7 @@ _log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 os.makedirs(_log_dir, exist_ok=True)
 _logger = logging.getLogger("replayer")
 _logger.setLevel(logging.DEBUG)
-_fh = logging.FileHandler(os.path.join(_log_dir, "replayer.log"), encoding="utf-8", mode="w")
+_fh = logging.FileHandler(os.path.join(_log_dir, "replayer.log"), encoding="utf-8", mode="a")
 _fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
 _logger.addHandler(_fh)
 
@@ -413,7 +413,7 @@ class Replayer:
     def _find_edit_control(self, hwnd) -> int:
         """查找窗口内的编辑控件（Edit/RichEdit/Scintilla 等）"""
         EDIT_CLASSES = {"Edit", "RichEdit", "RichEditD2DPT", "Scintilla",
-                        "RICHEDIT", "NotepadTextBox"}
+                        "RICHEDIT"}
         result = [None]
 
         def enum_child(child_hwnd, _):
