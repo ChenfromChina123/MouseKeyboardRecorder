@@ -1,0 +1,9 @@
+项目：鼠标键盘录制回放器
+状态：已完成基础功能开发
+待办：
+1、完成核心模块（event_model, recorder, replayer, window_manager）
+2、完成 UI 界面（main_window, window_selector）
+3、完成主程序入口（main.py）
+4、测试运行验证
+5、打包为 exe
+6、编写 README 文档

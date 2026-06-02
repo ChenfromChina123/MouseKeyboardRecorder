@@ -1,0 +1,7 @@
+1、pynput 的 injected 参数可用于过滤回放注入的事件，避免录制到回放自身的操作
+2、鼠标移动事件需要节流（16ms间隔），否则事件量过大
+3、回放精度使用 sleep + spin-wait 混合策略，长等待用 sleep 让出 CPU，短等待用 spin-wait 保证精度
+4、SendInput 的 Unicode 模式可正确回放中文字符
+5、PostMessage 发送窗口消息不需要目标窗口获得焦点，但兼容性不如 SendInput
+6、PySide6 Signal/Slot 机制用于子线程到主线程的跨线程通信
+7、Esc 停止回放需通过 QTimer.singleShot 在主线程执行，因为 keyboard 回调在非主线程
