@@ -2,6 +2,10 @@
 
 [English](README.md) | 中文
 
+<p align="center">
+  <img width="800" alt="MouseKeyboardRecorder" src="https://github.com/user-attachments/assets/9d3c8935-3bea-4b4a-9add-fb1884d28914" />
+</p>
+
 一款 Windows 桌面自动化工具，支持录制鼠标键盘操作并按时间精确回放。基于 Python + PySide6 开发。
 
 ## 功能特性

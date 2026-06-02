@@ -1,8 +1,10 @@
 # MouseKeyboardRecorder
 
 English | [中文](README_CN.md)
-<img width="1279" height="1067" alt="image" src="https://github.com/user-attachments/assets/9d3c8935-3bea-4b4a-9add-fb1884d28914" />
 
+<p align="center">
+  <img width="800" alt="MouseKeyboardRecorder" src="https://github.com/user-attachments/assets/9d3c8935-3bea-4b4a-9add-fb1884d28914" />
+</p>
 
 A Windows desktop automation tool that records mouse and keyboard operations and replays them with microsecond precision. Built with Python + PySide6.
 
