@@ -1,5 +1,7 @@
 # MouseKeyboardRecorder
 
+English | [中文](README_CN.md)
+
 A Windows desktop automation tool that records mouse and keyboard operations and replays them with microsecond precision. Built with Python + PySide6.
 
 ## Features
