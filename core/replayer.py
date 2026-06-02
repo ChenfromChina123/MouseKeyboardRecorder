@@ -1,6 +1,6 @@
 """
 回放模块
-按事件时间戳精确重放鼠标键盘操作，支持全局模式和窗口指定模式
+按事件时间戳精确重放鼠标键盘操作，支持全局模式和多窗口指定模式
 """
 
 import ctypes
@@ -17,7 +17,6 @@ import win32api
 from core.event_model import ActionEvent, EventType, RecordingSession
 from core.window_manager import WindowManager
 
-# 关闭 PyAutoGUI 的安全暂停，保留 FAILSAFE
 pyautogui.PAUSE = 0
 pyautogui.FAILSAFE = True
 
@@ -88,18 +87,10 @@ GetSystemMetrics = ctypes.windll.user32.GetSystemMetrics
 def _send_key_event(vk: int, is_press: bool, scan_code: int = None):
     """使用 SendInput 发送键盘事件"""
     if scan_code is None:
-        scan_code = MapVirtualKey(vk, 0)  # MAPVK_VK_TO_VSC
+        scan_code = MapVirtualKey(vk, 0)
     flags = 0 if is_press else KEYEVENTF_KEYUP
-    # 扩展键标志
-    if vk in (0x25, 0x26, 0x27, 0x28,  # 方向键
-              0x2D, 0x2E,  # Insert, Delete
-              0x21, 0x22,  # PageUp, PageDown
-              0x23, 0x24,  # End, Home
-              0x5B, 0x5C,  # 左右 Win
-              0xA2, 0xA3,  # 左右 Ctrl
-              0xA4, 0xA5,  # 左右 Alt
-              0x2C,  # PrintScreen
-              ):
+    if vk in (0x25, 0x26, 0x27, 0x28, 0x2D, 0x2E, 0x21, 0x22, 0x23, 0x24,
+              0x5B, 0x5C, 0xA2, 0xA3, 0xA4, 0xA5, 0x2C):
         flags |= KEYEVENTF_EXTENDEDKEY
     inp = INPUT(type=INPUT_KEYBOARD)
     inp.union.ki = KEYBDINPUT(wVk=vk, wScan=scan_code, dwFlags=flags, time=0)
@@ -119,9 +110,8 @@ def _send_unicode_char(char: str, is_press: bool):
 
 def _send_mouse_event(x: int, y: int, flags: int, data: int = 0):
     """使用 SendInput 发送鼠标事件"""
-    # 转换为绝对坐标（0-65535 范围）
-    screen_w = GetSystemMetrics(0)  # SM_CXSCREEN
-    screen_h = GetSystemMetrics(1)  # SM_CYSCREEN
+    screen_w = GetSystemMetrics(0)
+    screen_h = GetSystemMetrics(1)
     abs_x = int(x * 65535 / screen_w)
     abs_y = int(y * 65535 / screen_h)
     inp = INPUT(type=INPUT_MOUSE)
@@ -142,12 +132,13 @@ class Replayer:
         self._replay_thread: threading.Thread = None
         self._stop_event: threading.Event = threading.Event()
         self._pause_event: threading.Event = threading.Event()
-        self._pause_event.set()  # 初始不暂停
+        self._pause_event.set()
         self._speed: float = 1.0
-        self._target_hwnd: int = None
+        self._target_hwnds: list = []  # 目标窗口列表
+        self._current_target_hwnd: int = None  # 当前回放的目标窗口
         self._is_paused: bool = False
+        self._session_window_rect: tuple = None
 
-        # 回调
         self.on_status_changed: Callable[[str], None] = None
         self.on_progress: Callable[[int, int], None] = None
         self.on_finished: Callable[[], None] = None
@@ -161,19 +152,32 @@ class Replayer:
         return self._is_paused
 
     def set_speed(self, speed: float):
-        """设置回放速度（0.1x ~ 10.0x）"""
+        """设置回放速度"""
         self._speed = max(0.1, min(10.0, speed))
 
+    def set_target_windows(self, hwnd_list: list):
+        """设置目标窗口列表"""
+        self._target_hwnds = list(hwnd_list)
+        if hwnd_list:
+            self._current_target_hwnd = hwnd_list[0]
+        else:
+            self._current_target_hwnd = None
+
     def set_target_window(self, hwnd: int):
-        """指定目标窗口句柄"""
-        self._target_hwnd = hwnd
+        """设置单个目标窗口（兼容旧接口）"""
+        self.set_target_windows([hwnd] if hwnd else [])
 
     def clear_target_window(self):
-        """清除目标窗口（使用全局模式）"""
-        self._target_hwnd = None
+        """清除目标窗口（全局模式）"""
+        self._target_hwnds = []
+        self._current_target_hwnd = None
+
+    def set_session_window_rect(self, rect: tuple):
+        """设置录制时的窗口矩形"""
+        self._session_window_rect = rect
 
     def start_replay(self, session: RecordingSession, repeat: int = 1):
-        """开始回放"""
+        """开始回放。repeat=0 表示无限循环"""
         if self._is_replaying:
             return
         if not session or not session.events:
@@ -193,7 +197,7 @@ class Replayer:
     def stop_replay(self):
         """停止回放"""
         self._stop_event.set()
-        self._pause_event.set()  # 解除暂停以便线程退出
+        self._pause_event.set()
 
     def pause_replay(self):
         """暂停/继续回放"""
@@ -211,22 +215,30 @@ class Replayer:
                 self.on_status_changed("已暂停")
 
     def _replay_worker(self, session: RecordingSession, repeat: int):
-        """回放工作线程"""
+        """回放工作线程。repeat=0 表示无限循环"""
         try:
             if self.on_status_changed:
                 self.on_status_changed("回放中...")
 
             events = session.events
             total = len(events)
+            has_windows = bool(self._target_hwnds)
 
-            # 如果指定了窗口，先激活它
-            if self._target_hwnd:
-                WindowManager.activate_window(self._target_hwnd)
-                time.sleep(0.3)  # 等待窗口激活
-
-            for rep in range(repeat):
+            rep = 0
+            while True:
                 if self._stop_event.is_set():
                     break
+
+                # 无限循环检查：repeat=0 表示无限
+                if repeat > 0 and rep >= repeat:
+                    break
+
+                # 如果有多窗口，每个循环切换到下一个窗口
+                if has_windows:
+                    hwnd_idx = rep % len(self._target_hwnds)
+                    self._current_target_hwnd = self._target_hwnds[hwnd_idx]
+                    WindowManager.activate_window(self._current_target_hwnd)
+                    time.sleep(0.3)
 
                 replay_start = time.perf_counter()
 
@@ -234,19 +246,15 @@ class Replayer:
                     if self._stop_event.is_set():
                         break
 
-                    # 暂停等待
                     self._pause_event.wait()
 
-                    # 等待到事件应该发生的时刻
                     target_time = event.timestamp / self._speed
                     elapsed = time.perf_counter() - replay_start
                     wait_time = target_time - elapsed
 
                     if wait_time > 0:
                         if wait_time > 0.005:
-                            # 长等待：先 sleep 让出 CPU
                             time.sleep(wait_time - 0.002)
-                        # 精确等待：spin-wait
                         while time.perf_counter() - replay_start < target_time:
                             if self._stop_event.is_set():
                                 break
@@ -255,17 +263,22 @@ class Replayer:
                     if self._stop_event.is_set():
                         break
 
-                    # 执行事件
                     self._execute_event(event)
 
                     if self.on_progress:
                         self.on_progress(i + 1, total)
 
+                rep += 1
+
         finally:
             self._is_replaying = False
             self._is_paused = False
-            if self.on_status_changed:
-                self.on_status_changed("回放完成")
+            if not self._stop_event.is_set():
+                if self.on_status_changed:
+                    self.on_status_changed("回放完成")
+            else:
+                if self.on_status_changed:
+                    self.on_status_changed("已停止")
             if self.on_finished:
                 self.on_finished()
 
@@ -283,18 +296,16 @@ class Replayer:
             self._execute_key(event, is_press=False)
 
     def _execute_mouse_move(self, event: ActionEvent):
-        """执行鼠标移动"""
         x, y = self._transform_coords(event.x, event.y)
-        if self._target_hwnd:
-            self._send_mouse_to_window(x, y, 'move')
+        if self._current_target_hwnd:
+            self._send_mouse_to_window(self._current_target_hwnd, x, y, 'move')
         else:
             _send_mouse_event(x, y, MOUSEEVENTF_MOVE)
 
     def _execute_mouse_click(self, event: ActionEvent):
-        """执行鼠标点击"""
         x, y = self._transform_coords(event.x, event.y)
-        if self._target_hwnd:
-            self._send_mouse_to_window(x, y, 'click', event.button, event.pressed)
+        if self._current_target_hwnd:
+            self._send_mouse_to_window(self._current_target_hwnd, x, y, 'click', event.button, event.pressed)
         else:
             if event.button == 'left':
                 flags = MOUSEEVENTF_LEFTDOWN if event.pressed else MOUSEEVENTF_LEFTUP
@@ -307,10 +318,9 @@ class Replayer:
             _send_mouse_event(x, y, flags)
 
     def _execute_mouse_scroll(self, event: ActionEvent):
-        """执行鼠标滚轮"""
         x, y = self._transform_coords(event.x, event.y)
-        if self._target_hwnd:
-            self._send_mouse_to_window(x, y, 'scroll', dx=event.dx, dy=event.dy)
+        if self._current_target_hwnd:
+            self._send_mouse_to_window(self._current_target_hwnd, x, y, 'scroll', dx=event.dx, dy=event.dy)
         else:
             if event.dy:
                 _send_mouse_event(x, y, MOUSEEVENTF_WHEEL, event.dy * WHEEL_DELTA)
@@ -318,9 +328,8 @@ class Replayer:
                 _send_mouse_event(x, y, MOUSEEVENTF_HWHEEL, event.dx * WHEEL_DELTA)
 
     def _execute_key(self, event: ActionEvent, is_press: bool):
-        """执行键盘事件"""
-        if self._target_hwnd:
-            self._send_key_to_window(event, is_press)
+        if self._current_target_hwnd:
+            self._send_key_to_window(self._current_target_hwnd, event, is_press)
         else:
             if event.vk is not None:
                 _send_key_event(event.vk, is_press, event.scan_code)
@@ -328,29 +337,24 @@ class Replayer:
                 _send_unicode_char(event.key, is_press)
 
     def _transform_coords(self, x: int, y: int) -> tuple:
-        """坐标变换：录制坐标 -> 回放坐标"""
-        if self._target_hwnd and hasattr(self, '_session_window_rect') and self._session_window_rect:
-            # 窗口指定模式：坐标偏移法
-            rect = self._session_window_rect
-            current_rect = WindowManager.get_window_rect(self._target_hwnd)
+        """坐标变换"""
+        hwnd = self._current_target_hwnd
+        if hwnd and self._session_window_rect:
+            current_rect = WindowManager.get_window_rect(hwnd)
             if current_rect:
-                dx = current_rect[0] - rect[0]
-                dy = current_rect[1] - rect[1]
+                dx = current_rect[0] - self._session_window_rect[0]
+                dy = current_rect[1] - self._session_window_rect[1]
                 return x + dx, y + dy
         return x, y
 
-    def set_session_window_rect(self, rect: tuple):
-        """设置录制时的窗口矩形，用于坐标偏移计算"""
-        self._session_window_rect = rect
-
-    def _send_mouse_to_window(self, x: int, y: int, action: str, button: str = None, pressed: bool = None, dx: int = None, dy: int = None):
+    def _send_mouse_to_window(self, hwnd, x, y, action, button=None, pressed=None, dx=None, dy=None):
         """向指定窗口发送鼠标事件"""
         try:
-            client_x, client_y = win32gui.ScreenToClient(self._target_hwnd, (x, y))
+            client_x, client_y = win32gui.ScreenToClient(hwnd, (x, y))
             lparam = win32api.MAKELONG(client_x, client_y)
 
             if action == 'move':
-                win32gui.PostMessage(self._target_hwnd, win32con.WM_MOUSEMOVE, 0, lparam)
+                win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, 0, lparam)
             elif action == 'click':
                 if button == 'left':
                     msg = win32con.WM_LBUTTONDOWN if pressed else win32con.WM_LBUTTONUP
@@ -363,18 +367,18 @@ class Replayer:
                     wparam = win32con.MK_MBUTTON if pressed else 0
                 else:
                     return
-                win32gui.PostMessage(self._target_hwnd, msg, wparam, lparam)
+                win32gui.PostMessage(hwnd, msg, wparam, lparam)
             elif action == 'scroll':
                 if dy:
                     wparam = win32api.MAKELONG(0, dy * WHEEL_DELTA)
-                    win32gui.PostMessage(self._target_hwnd, win32con.WM_MOUSEWHEEL, wparam, lparam)
+                    win32gui.PostMessage(hwnd, win32con.WM_MOUSEWHEEL, wparam, lparam)
                 if dx:
                     wparam = win32api.MAKELONG(dx * WHEEL_DELTA, 0)
-                    win32gui.PostMessage(self._target_hwnd, win32con.WM_MOUSEHWHEEL, wparam, lparam)
+                    win32gui.PostMessage(hwnd, win32con.WM_MOUSEHWHEEL, wparam, lparam)
         except Exception:
-            pass  # 窗口可能已关闭
+            pass
 
-    def _send_key_to_window(self, event: ActionEvent, is_press: bool):
+    def _send_key_to_window(self, hwnd, event, is_press):
         """向指定窗口发送键盘事件"""
         try:
             msg = win32con.WM_KEYDOWN if is_press else win32con.WM_KEYUP
@@ -385,6 +389,6 @@ class Replayer:
             lparam = (scan << 16) | 1
             if not is_press:
                 lparam |= 0xC0000000
-            win32gui.PostMessage(self._target_hwnd, msg, wparam, lparam)
+            win32gui.PostMessage(hwnd, msg, wparam, lparam)
         except Exception:
             pass
