@@ -1,79 +1,123 @@
-# 鼠标键盘录制回放器
+# MouseKeyboardRecorder
 
-一个 Python 桌面工具，能录制鼠标键盘操作并按时间精确复现，支持指定窗口回放。
+A Windows desktop automation tool that records mouse and keyboard operations and replays them with microsecond precision. Built with Python + PySide6.
 
-## 功能特性
+## Features
 
-- **录制操作**：录制所有鼠标移动、点击、滚轮和键盘按键，精确到毫秒
-- **时间复现**：按录制时的时间间隔精确回放所有操作
-- **指定窗口**：可选择特定窗口进行回放，操作限定在目标窗口内
-- **速度调节**：支持 0.1x ~ 5.0x 回放速度
-- **重复播放**：支持设置重复次数（1 ~ 9999 次）
-- **保存/加载**：录制结果可保存为 JSON 文件，随时加载回放
-- **紧急停止**：Esc 键或鼠标移到屏幕左上角即可停止回放
+- **Full Event Capture**: Records mouse movement, clicks, scroll wheel, and all keyboard keys with precise timestamps
+- **Precise Replay**: Replays all operations following the original timing intervals using a hybrid wait strategy (sleep + spin-wait)
+- **Window-Targeted Replay**: Select one or multiple windows as replay targets; operations are sent directly to the focused window
+- **Multi-Window Rotation**: Add multiple windows and replay across them in sequence, one per cycle
+- **Recording Mode Filter**: Choose to record mouse only, keyboard only, or both simultaneously
+- **Speed Control**: Adjustable replay speed from 0.1x to 5.0x
+- **Repeat & Loop**: Set repeat count (1 to 999,999) or enable infinite looping
+- **Configuration Profiles**: Save and load multiple named configurations, including all settings, selected windows, and recorded events
+- **Save/Load Recordings**: Export recordings as JSON files for later use
+- **Emergency Stop**: Press Esc or move the mouse to the top-left corner to stop replay immediately
+- **Color-Coded Event Table**: Different event types are highlighted with distinct colors for easy identification
 
-## 环境要求
+## Requirements
 
 - Windows 10/11
-- Python 3.8+（打包后的 exe 无需 Python 环境）
+- Python 3.8+
 
-## 安装与运行
-
-### 方式一：直接运行 Python 脚本
+## Installation
 
 ```bash
-# 安装依赖
-pip install -r requirements.txt
+# Clone the repository
+git clone https://github.com/ChenfromChina123/MouseKeyboardRecorder.git
+cd MouseKeyboardRecorder
 
-# 运行
+# Install dependencies
+pip install -r requirements.txt
+```
+
+## Usage
+
+### Run directly
+
+```bash
 python main.py
 ```
 
-### 方式二：打包成 exe
+### Build executable
 
 ```bash
-# 运行打包脚本
 build.bat
 ```
 
-打包完成后，`dist/MouseKeyboardRecorder.exe` 即为独立可执行文件，可复制到桌面双击运行。
+The standalone executable will be generated at `dist/MouseKeyboardRecorder.exe`.
 
-## 使用说明
+## How It Works
 
-1. **录制**：点击"● 录制"按钮开始录制，执行你需要录制的操作，点击"■ 停止"结束
-2. **回放**：点击"▶ 回放"按钮开始回放，可随时按 Esc 或点击"■ 停止"中止
-3. **指定窗口**：在"目标窗口"区域选择或搜索目标窗口，取消勾选"全局模式"
-4. **保存/加载**：通过菜单"文件 > 保存录制/加载录制"管理录制文件
+### Recording
 
-## 快捷键
+1. (Optional) Select recording mode: Mouse + Keyboard, Mouse Only, or Keyboard Only
+2. (Optional) Add target windows in the "Target Windows" section
+3. Click "Record" to start, perform your operations, click "Stop" when done
+4. All events appear in the event preview table with timestamps
 
-| 快捷键 | 功能 |
-|--------|------|
-| Ctrl+S | 保存录制 |
-| Ctrl+O | 加载录制 |
-| Esc    | 停止回放 |
-| Alt+F4 | 退出程序 |
+### Replaying
 
-## 项目结构
+1. Adjust replay speed and repeat count as needed
+2. Choose replay mode:
+   - **Global mode**: Replay at the original screen coordinates
+   - **Window mode**: Add target windows, then click "Replay Selected Window" or "Replay All Windows"
+3. Click "Replay" to start; press "Pause" to pause/resume; press "Esc" to stop
+
+### Configuration Profiles
+
+1. Adjust all settings (recording mode, speed, repeat, windows, etc.)
+2. Click "Save Config", enter a name, and the entire configuration is persisted
+3. Select a saved config from the dropdown and click "Load Config" to restore
+4. Configurations are stored as JSON files in the `configs/` directory
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| Ctrl+S   | Save recording |
+| Ctrl+O   | Load recording |
+| Ctrl+N   | Clear and reset |
+| Esc      | Stop replay |
+| Alt+F4   | Exit |
+
+## Architecture
 
 ```
 MouseKeyboardRecorder/
-├── main.py              # 程序入口
-├── core/                # 核心逻辑
-│   ├── event_model.py   # 事件数据结构
-│   ├── recorder.py      # 录制模块
-│   ├── replayer.py      # 回放模块
-│   └── window_manager.py # 窗口管理
-├── ui/                  # 界面模块
-│   ├── main_window.py   # 主窗口
-│   └── window_selector.py # 窗口选择对话框
-├── recordings/          # 录制文件保存目录
-└── build.bat            # 打包脚本
+├── main.py                    # Application entry point
+├── core/
+│   ├── event_model.py         # Event data structures (ActionEvent, RecordingSession)
+│   ├── recorder.py            # Recording engine (pynput mouse hook + GetAsyncKeyState polling)
+│   ├── replayer.py            # Replay engine (SendInput + mixed wait strategy)
+│   ├── window_manager.py      # Window enumeration, activation, coordinate transforms
+│   └── config_manager.py      # Configuration persistence
+├── ui/
+│   ├── main_window.py         # Main window with all UI components
+│   └── window_selector.py     # Window selection dialog
+├── configs/                   # Saved configuration profiles
+├── recordings/                # Saved recording files
+├── logs/                      # Runtime logs
+├── build.bat                  # PyInstaller build script
+└── requirements.txt           # Python dependencies
 ```
 
-## 注意事项
+## Technical Details
 
-- 某些高权限窗口（如以管理员运行的程序）可能需要以管理员身份运行本工具才能录制
-- 游戏或全屏 DirectX 应用可能无法通过本工具回放
-- 中文输入法的输入回放使用 Unicode 模式，兼容性较好
-- 录制文件为 JSON 格式，可手动编辑
+| Component | Implementation |
+|-----------|---------------|
+| Mouse capture | pynput `mouse.Listener` global hook |
+| Keyboard capture | `GetAsyncKeyState` polling via QTimer on main thread |
+| Keyboard simulation | `SendInput` ctypes (VK code + Unicode dual mode) |
+| Mouse simulation | `SendInput` for global mode; `PostMessage` for window-targeted mode |
+| Replay timing | `time.perf_counter()` + hybrid sleep/spin-wait (<1ms accuracy) |
+| Injection filtering | pynput `injected` parameter rejects replay-generated events |
+| Window targeting | `SetForegroundWindow` activation + `SendInput` to focused window |
+
+## Notes
+
+- Programs running as administrator may require this tool to also run as administrator for recording to work
+- Fullscreen DirectX applications and games may not be compatible
+- Chinese IME input replay uses Unicode mode for better compatibility
+- Recording files are plain JSON and can be manually edited
