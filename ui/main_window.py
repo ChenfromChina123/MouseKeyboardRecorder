@@ -1,15 +1,16 @@
 """
 主窗口模块
 包含录制控制、回放设置、事件预览表格、状态栏等所有 UI 组件
-支持多窗口选择、无限回放、颜色区分
+支持多窗口选择、无限回放、颜色区分、配置持久化
 """
 
+import os
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QSlider, QLabel, QTableWidget, QTableWidgetItem,
     QSpinBox, QStatusBar, QFileDialog, QMessageBox,
     QHeaderView, QGroupBox, QCheckBox, QListWidget, QAbstractItemView,
-    QComboBox
+    QComboBox, QInputDialog
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer
 from PySide6.QtGui import QAction, QColor, QFont
@@ -18,6 +19,7 @@ from core.event_model import ActionEvent, EventType, RecordingSession, EVENT_TYP
 from core.recorder import Recorder
 from core.replayer import Replayer
 from core.window_manager import WindowManager, WindowInfo
+from core.config_manager import save_config, load_config, list_configs, delete_config
 from ui.window_selector import WindowSelectorDialog
 
 
@@ -75,6 +77,7 @@ class MainWindow(QMainWindow):
         self._setup_status_bar()
         self._connect_signals()
         self._refresh_window_list()
+        self._refresh_config_list()
 
     def _setup_ui(self):
         """构建主界面"""
@@ -238,10 +241,42 @@ class MainWindow(QMainWindow):
         table_layout.addWidget(self.event_table)
         table_group.setLayout(table_layout)
 
+        # === 配置管理区 ===
+        config_group = QGroupBox("配置管理")
+        config_layout = QHBoxLayout()
+
+        self.combo_config = QComboBox()
+        self.combo_config.setMinimumWidth(200)
+        self.btn_config_load = QPushButton("加载配置")
+        self.btn_config_save = QPushButton("保存配置")
+        self.btn_config_delete = QPushButton("删除配置")
+
+        self.btn_config_load.setStyleSheet(
+            "QPushButton { background-color: #2eaa2e; color: white; padding: 6px 12px; border-radius: 3px; }"
+            "QPushButton:hover { background-color: #208020; }"
+        )
+        self.btn_config_save.setStyleSheet(
+            "QPushButton { background-color: #3377cc; color: white; padding: 6px 12px; border-radius: 3px; }"
+            "QPushButton:hover { background-color: #2260aa; }"
+        )
+        self.btn_config_delete.setStyleSheet(
+            "QPushButton { background-color: #cc3333; color: white; padding: 6px 12px; border-radius: 3px; }"
+            "QPushButton:hover { background-color: #aa2020; }"
+        )
+
+        config_layout.addWidget(QLabel("配置:"))
+        config_layout.addWidget(self.combo_config)
+        config_layout.addWidget(self.btn_config_load)
+        config_layout.addWidget(self.btn_config_save)
+        config_layout.addWidget(self.btn_config_delete)
+        config_layout.addStretch()
+        config_group.setLayout(config_layout)
+
         # 添加到主布局
         main_layout.addWidget(ctrl_group)
         main_layout.addWidget(settings_group)
         main_layout.addWidget(window_group)
+        main_layout.addWidget(config_group)
         main_layout.addWidget(table_group, 1)
 
     def _setup_menu(self):
@@ -296,6 +331,10 @@ class MainWindow(QMainWindow):
         self.btn_replay_selected.clicked.connect(self._on_replay_selected_window)
         self.btn_replay_all.clicked.connect(self._on_replay_all_windows)
         self.list_selected_windows.currentRowChanged.connect(self._on_selected_window_changed)
+
+        self.btn_config_save.clicked.connect(self._on_save_config)
+        self.btn_config_load.clicked.connect(self._on_load_config)
+        self.btn_config_delete.clicked.connect(self._on_delete_config)
 
         self.slider_speed.valueChanged.connect(self._on_speed_changed)
 
@@ -664,6 +703,133 @@ class MainWindow(QMainWindow):
             "<p>Ctrl+N - 清空重置</p>"
             "<p>Esc - 停止回放</p>"
         )
+
+    # ========== 配置管理 ==========
+
+    def _refresh_config_list(self):
+        """刷新配置下拉列表"""
+        self.combo_config.clear()
+        configs = list_configs()
+        for name in configs:
+            self.combo_config.addItem(name)
+
+    def _collect_settings(self) -> dict:
+        """收集当前 UI 状态为配置字典"""
+        settings = {
+            "record_mode": self.combo_record_mode.currentData(),
+            "speed": self.slider_speed.value() / 10.0,
+            "repeat_count": self.spin_repeat.value(),
+            "infinite_loop": self.chk_infinite.isChecked(),
+            "global_mode": self.chk_no_window.isChecked(),
+            "selected_windows": [
+                {"hwnd": w["hwnd"], "title": w["title"], "rect": list(w["rect"])}
+                for w in self.selected_windows
+            ],
+            "session_file": None
+        }
+        # 保存当前会话事件
+        if self.current_session and self.current_session.events:
+            from datetime import datetime
+            session_name = f"config_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            session_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "recordings", f"{session_name}.json"
+            )
+            os.makedirs(os.path.dirname(session_path), exist_ok=True)
+            self.current_session.save_to_file(session_path)
+            settings["session_file"] = session_path
+        return settings
+
+    def _apply_settings(self, settings: dict):
+        """将配置字典应用到 UI"""
+        # 录制模式
+        mode = settings.get("record_mode", "both")
+        for i in range(self.combo_record_mode.count()):
+            if self.combo_record_mode.itemData(i) == mode:
+                self.combo_record_mode.setCurrentIndex(i)
+                break
+
+        # 速度
+        speed = settings.get("speed", 1.0)
+        self.slider_speed.setValue(int(speed * 10))
+
+        # 重复次数
+        repeat = settings.get("repeat_count", 1)
+        self.spin_repeat.setValue(repeat)
+
+        # 无限循环
+        infinite = settings.get("infinite_loop", False)
+        self.chk_infinite.setChecked(infinite)
+
+        # 全局模式
+        global_mode = settings.get("global_mode", True)
+        self.chk_no_window.setChecked(global_mode)
+
+        # 已选窗口
+        self.selected_windows.clear()
+        for w in settings.get("selected_windows", []):
+            rect = w.get("rect")
+            if isinstance(rect, list):
+                rect = tuple(rect)
+            self.selected_windows.append({
+                "hwnd": w["hwnd"],
+                "title": w["title"],
+                "rect": rect
+            })
+        self._update_selected_windows_list()
+
+        # 加载录制事件
+        session_file = settings.get("session_file")
+        if session_file and os.path.exists(session_file):
+            try:
+                session = RecordingSession.load_from_file(session_file)
+                self.current_session = session
+                self._load_events_to_table(session)
+                self._set_ui_idle_state()
+            except Exception:
+                pass
+
+    def _on_save_config(self):
+        """保存当前配置"""
+        name, ok = QInputDialog.getText(self, "保存配置", "请输入配置名称:")
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+        settings = self._collect_settings()
+        save_config(name, settings)
+        self._refresh_config_list()
+        # 选中刚保存的配置
+        idx = self.combo_config.findText(name)
+        if idx >= 0:
+            self.combo_config.setCurrentIndex(idx)
+        self.status_signal.emit(f"配置已保存: {name}")
+
+    def _on_load_config(self):
+        """加载选中的配置"""
+        name = self.combo_config.currentText()
+        if not name:
+            QMessageBox.warning(self, "提示", "请先选择一个配置。")
+            return
+        settings = load_config(name)
+        if not settings:
+            QMessageBox.warning(self, "提示", f"配置 '{name}' 不存在。")
+            return
+        self._apply_settings(settings)
+        self.status_signal.emit(f"配置已加载: {name}")
+
+    def _on_delete_config(self):
+        """删除选中的配置"""
+        name = self.combo_config.currentText()
+        if not name:
+            return
+        reply = QMessageBox.question(
+            self, "确认删除", f"确定要删除配置 '{name}' 吗？",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            delete_config(name)
+            self._refresh_config_list()
+            self.status_signal.emit(f"配置已删除: {name}")
 
     def closeEvent(self, event):
         if self.recorder.is_recording:
