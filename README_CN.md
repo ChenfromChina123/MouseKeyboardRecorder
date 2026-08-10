@@ -6,7 +6,24 @@
   <img width="400" alt="MouseKeyboardRecorder" src="https://github.com/user-attachments/assets/9d3c8935-3bea-4b4a-9add-fb1884d28914" />
 </p>
 
+<p align="center">
+  <a href="https://github.com/ChenfromChina123/MouseKeyboardRecorder/stargazers" target="_blank">
+    <img src="https://img.shields.io/github/stars/ChenfromChina123/MouseKeyboardRecorder" alt="GitHub Stars"/>
+  </a>
+  <img src="https://img.shields.io/badge/python-3.8%2B-blue" alt="Python">
+  <img src="https://img.shields.io/badge/GUI-PySide6-green" alt="PySide6">
+  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey" alt="Platform">
+  <img src="https://img.shields.io/badge/replay_precision-%3C1ms-orange" alt="Precision">
+</p>
+
 一款 Windows 桌面自动化工具，支持录制鼠标键盘操作并按时间精确回放。基于 Python + PySide6 开发。
+
+## 🎯 适用场景
+
+- **自动化测试** — 录制一次可复现的 UI 操作流程，重复回放数百次验证稳定性
+- **批量重复操作** — 自动填表、点击流程，或对多个窗口轮流回放
+- **演示与展示** — 按需以任意速度回放精心录制的操作序列
+- **RPA 原型** — 捕获真实用户操作，快速启动你的自动化脚本开发
 
 ## 功能特性
 

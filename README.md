@@ -6,7 +6,24 @@ English | [中文](README_CN.md)
   <img width="400" alt="MouseKeyboardRecorder" src="https://github.com/user-attachments/assets/9d3c8935-3bea-4b4a-9add-fb1884d28914" />
 </p>
 
+<p align="center">
+  <a href="https://github.com/ChenfromChina123/MouseKeyboardRecorder/stargazers" target="_blank">
+    <img src="https://img.shields.io/github/stars/ChenfromChina123/MouseKeyboardRecorder" alt="GitHub Stars"/>
+  </a>
+  <img src="https://img.shields.io/badge/python-3.8%2B-blue" alt="Python">
+  <img src="https://img.shields.io/badge/GUI-PySide6-green" alt="PySide6">
+  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey" alt="Platform">
+  <img src="https://img.shields.io/badge/replay_precision-%3C1ms-orange" alt="Precision">
+</p>
+
 A Windows desktop automation tool that records mouse and keyboard operations and replays them with microsecond precision. Built with Python + PySide6.
+
+## 🎯 Use Cases
+
+- **Automated testing** — record a reproducible UI flow once, replay it hundreds of times to verify stability
+- **Batch repetitive work** — fill forms, click through workflows, or replay operations across multiple windows in rotation
+- **Demo & presentation** — replay a polished interaction sequence on demand, at any speed
+- **RPA prototyping** — capture real user operations to bootstrap your automation scripts
 
 ## Features
 
